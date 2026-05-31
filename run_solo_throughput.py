@@ -269,11 +269,21 @@ def reset_cgroup():
 # 프로세스 관리
 # ==========================================
 def stop_processes(procs):
+    # SIGINT 먼저 → KeyboardInterrupt 핸들러가 "Done." 출력 + flush
     for proc in procs:
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            os.killpg(os.getpgid(proc.pid), signal.SIGINT)
         except (ProcessLookupError, OSError):
             pass
+    # "Done." 출력할 시간 대기
+    time.sleep(3)
+    # 아직 살아있으면 SIGTERM → SIGKILL
+    for proc in procs:
+        if proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
     deadline = time.time() + 5
     for proc in procs:
         remaining = max(0, deadline - time.time())
@@ -325,13 +335,14 @@ def start_workload(workload_name, num_cores, stdout_path, stderr_path):
     stdout_f = open(stdout_path, "w")
     stderr_f = open(stderr_path, "w")
 
-    # 환경변수 설정: OMP_NUM_THREADS 주입
+    # 환경변수 설정: OMP_NUM_THREADS 주입 + stdout 버퍼링 방지
     env = os.environ.copy()
     env.pop("CUDA_VISIBLE_DEVICES", None)
     env["OMP_NUM_THREADS"] = str(num_cores)
     env["MKL_NUM_THREADS"] = str(num_cores)
     env["MKL_DYNAMIC"] = "FALSE"
     env["OPENBLAS_NUM_THREADS"] = str(num_cores)
+    env["PYTHONUNBUFFERED"] = "1"
 
     if wl.get("two_phase"):
         # NodeJS: 서버 + autocannon
