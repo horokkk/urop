@@ -71,7 +71,7 @@ CORE_CONDITIONS = {
 DEFAULT_MEM = "28G"
 
 # ==========================================
-# 워크로드 정의 (11종)
+# 워크로드 정의 (14종)
 # ==========================================
 WORKLOADS = {
     "resnet": {
@@ -88,7 +88,7 @@ WORKLOADS = {
     },
     "training": {
         "cmd": f"{VENV_PYTHON} {SCRIPTS_DIR}/workload_training.py -t {WORKLOAD_DUR}",
-        "pattern": "workload_training",
+        "pattern": "workload_training.py",  # .py 포함 (training_heavy 오매칭 방지)
         "gpu": True,
         "throughput_unit": "img/s",
     },
@@ -143,11 +143,31 @@ WORKLOADS = {
         "gpu": False,
         "throughput_unit": "req/s",
     },
+    # === 신규 GPU pipeline 워크로드 (Claim 2: GPU 세분화) ===
+    "training_heavy": {
+        "cmd": f"{VENV_PYTHON} {SCRIPTS_DIR}/workload_training_heavy.py -t {WORKLOAD_DUR}",
+        "pattern": "workload_training_heavy",
+        "gpu": True,
+        "throughput_unit": "img/s",
+    },
+    "video_analytics": {
+        "cmd": f"{VENV_PYTHON} {SCRIPTS_DIR}/workload_video_analytics.py -t {WORKLOAD_DUR} --source {HOME}/yolo/test_video.mp4",
+        "pattern": "workload_video_analytics",
+        "gpu": True,
+        "throughput_unit": "fps",
+    },
+    "llm_serving": {
+        "cmd": f"{VENV_PYTHON} {SCRIPTS_DIR}/workload_llm_serving.py -t {WORKLOAD_DUR}",
+        "pattern": "workload_llm_serving",
+        "gpu": True,
+        "throughput_unit": "tok/s",
+    },
 }
 
 # 실험 순서 (GPU 워크로드 먼저 → CPU)
 WORKLOAD_ORDER = [
     "resnet_gpu", "gemm", "yolo", "training", "gpu_llm",
+    "training_heavy", "video_analytics", "llm_serving",
     "resnet", "llm", "llm_774m", "ffmpeg", "nodejs",
 ]
 
