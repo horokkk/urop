@@ -201,6 +201,16 @@ def match_wall_power(wall_data, start_time_str, idle_wait=30, workload_dur=120):
 # ==========================================
 # Throughput 재파싱 (stdout 로그에서)
 # ==========================================
+def _read_stderr_fallback(stdout_path):
+    """stdout 경로에서 대응하는 stderr 경로를 추론하여 읽기."""
+    stderr_path = stdout_path.replace("/stdout/", "/stderr/").replace(".log", ".err")
+    try:
+        with open(stderr_path, "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
 def reparse_throughput(stdout_path, workload_name):
     """stdout 로그에서 throughput 재파싱.
 
@@ -210,6 +220,25 @@ def reparse_throughput(stdout_path, workload_name):
         with open(stdout_path, "r") as f:
             content = f.read()
     except FileNotFoundError:
+        content = ""
+
+    # nodejs/autocannon: stdout이 비어있어도 stderr에 데이터 있을 수 있음
+    if workload_name == "nodejs":
+        for text in [content, _read_stderr_fallback(stdout_path)]:
+            if not text:
+                continue
+            text = re.sub(r'\x1b\[[0-9;]*m', '', text)
+            for line in text.split('\n'):
+                if 'Req/Sec' in line and '\u2502' in line:
+                    parts = [p.strip() for p in line.split('\u2502') if p.strip()]
+                    if len(parts) >= 6:
+                        try:
+                            return float(parts[5])
+                        except ValueError:
+                            pass
+            match = re.search(r'"average"\s*:\s*(\d+\.?\d*)', text)
+            if match:
+                return float(match.group(1))
         return None
 
     if not content.strip():
@@ -228,25 +257,6 @@ def reparse_throughput(stdout_path, workload_name):
         if not steady_fps:
             steady_fps = valid_fps
         return sum(steady_fps) / len(steady_fps)
-
-    # nodejs: autocannon
-    if workload_name == "nodejs":
-        match = re.search(r"Req/Sec[^\d]*(\d+\.?\d*k?)", content)
-        if match:
-            val_str = match.group(1)
-            if val_str.endswith('k'):
-                return float(val_str[:-1]) * 1000
-            return float(val_str)
-        match = re.search(r"(\d+\.?\d*k?)\s+req(?:uest)?s?/sec", content, re.IGNORECASE)
-        if match:
-            val_str = match.group(1)
-            if val_str.endswith('k'):
-                return float(val_str[:-1]) * 1000
-            return float(val_str)
-        match = re.search(r'"average"\s*:\s*(\d+\.?\d*)', content)
-        if match:
-            return float(match.group(1))
-        return None
 
     # 일반 워크로드: "Done." 라인
     match = re.search(r"Done\..*\((\d+\.?\d*)\s+\w+/s\)", content)
