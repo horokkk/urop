@@ -368,18 +368,21 @@ def cleanup_residual_processes():
                 "workload_video_analytics", "workload_llm_serving",
                 "workload_training_heavy"]
     my_pid = os.getpid()
+    my_ppid = os.getppid()  # sudo 부모 프로세스 보호
     killed = []
     for entry in os.listdir('/proc'):
         if not entry.isdigit():
             continue
         pid = int(entry)
-        if pid == my_pid:
+        if pid in (my_pid, my_ppid):
             continue
         try:
             with open(f'/proc/{pid}/cmdline', 'rb') as f:
                 cmdline = f.read().replace(b'\x00', b' ').decode(
                     'utf-8', errors='replace')
             if 'concurrent_power' in cmdline:
+                continue
+            if 'run_concurrent_throughput' in cmdline:
                 continue
             for pat in patterns:
                 if pat in cmdline:
