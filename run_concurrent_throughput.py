@@ -566,13 +566,22 @@ def _strip_ansi(text):
 def _parse_autocannon(content):
     """autocannon stdout/stderr에서 평균 Req/Sec 파싱."""
     content = _strip_ansi(content)
-    match = re.search(r"Req/Sec[^\d]*(\d+\.?\d*k?)", content)
-    if match:
-        val_str = match.group(1)
-        if val_str.endswith('k'):
-            return float(val_str[:-1]) * 1000
-        return float(val_str)
 
+    # autocannon 테이블 모드: "Req/Sec" 행에서 Avg 열 (5번째 값) 추출
+    # 형식: │ Req/Sec │ 1% │ 2.5% │ 50% │ 97.5% │ Avg │ Stdev │ Min │
+    for line in content.split('\n'):
+        if 'Req/Sec' in line and '\u2502' in line:
+            parts = [p.strip() for p in line.split('\u2502') if p.strip()]
+            if len(parts) >= 6:
+                val_str = parts[5]
+                try:
+                    if val_str.endswith('k'):
+                        return float(val_str[:-1]) * 1000
+                    return float(val_str)
+                except ValueError:
+                    pass
+
+    # "X req/sec" 형태 검색
     match = re.search(
         r"(\d+\.?\d*k?)\s+req(?:uest)?s?/sec", content, re.IGNORECASE)
     if match:
@@ -581,6 +590,7 @@ def _parse_autocannon(content):
             return float(val_str[:-1]) * 1000
         return float(val_str)
 
+    # 숫자만 들어있는 경우 (autocannon --json)
     match = re.search(r'"average"\s*:\s*(\d+\.?\d*)', content)
     if match:
         return float(match.group(1))
