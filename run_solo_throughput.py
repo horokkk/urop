@@ -323,17 +323,18 @@ def cleanup_residual_processes():
                 "workload_training", "libx264", "workload_gpu_llm",
                 "ffmpeg", "workload_ffmpeg"]
     my_pid = os.getpid()
+    parent_pid = os.getppid()
     killed = []
     for entry in os.listdir('/proc'):
         if not entry.isdigit():
             continue
         pid = int(entry)
-        if pid == my_pid:
+        if pid in (my_pid, parent_pid):
             continue
         try:
             with open(f'/proc/{pid}/cmdline', 'rb') as f:
                 cmdline = f.read().replace(b'\x00', b' ').decode('utf-8', errors='replace')
-            if 'concurrent_power' in cmdline:
+            if 'concurrent_power' in cmdline or 'run_solo_throughput' in cmdline:
                 continue
             for pat in patterns:
                 if pat in cmdline:
