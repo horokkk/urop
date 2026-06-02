@@ -473,8 +473,13 @@ def start_workload(workload_name, num_cores, cgroup_path, cuda_device,
 # ==========================================
 # Throughput 파싱
 # ==========================================
-def parse_throughput_from_log(stdout_path, workload_name):
-    """stdout 로그에서 throughput 값을 파싱.
+def parse_throughput_from_log(stdout_path, workload_name, stderr_path=None):
+    """stdout (+ stderr fallback) 로그에서 throughput 값을 파싱.
+
+    Args:
+        stdout_path: stdout 로그 파일 경로
+        workload_name: 워크로드 이름
+        stderr_path: stderr 로그 파일 경로 (nodejs/autocannon fallback용)
 
     Returns:
         (throughput_value: float or None, unit: str)
@@ -486,16 +491,28 @@ def parse_throughput_from_log(stdout_path, workload_name):
         with open(stdout_path, "r") as f:
             content = f.read()
     except FileNotFoundError:
+        content = ""
+
+    if wl.get("direct_ffmpeg"):
+        if content.strip():
+            return _parse_ffmpeg_progress(content), unit
         return None, unit
+
+    if wl.get("two_phase"):
+        # autocannon: stdout 먼저, 실패하면 stderr fallback
+        result = _parse_autocannon(content) if content.strip() else None
+        if result is None and stderr_path:
+            try:
+                with open(stderr_path, "r") as f:
+                    stderr_content = f.read()
+                if stderr_content.strip():
+                    result = _parse_autocannon(stderr_content)
+            except FileNotFoundError:
+                pass
+        return result, unit
 
     if not content.strip():
         return None, unit
-
-    if wl.get("direct_ffmpeg"):
-        return _parse_ffmpeg_progress(content), unit
-
-    if wl.get("two_phase"):
-        return _parse_autocannon(content), unit
 
     return _parse_done_line(content, workload_name), unit
 
@@ -541,8 +558,14 @@ def _parse_ffmpeg_progress(content):
     return sum(steady_fps) / len(steady_fps)
 
 
+def _strip_ansi(text):
+    """ANSI escape 시퀀스 제거."""
+    return re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+
+
 def _parse_autocannon(content):
-    """autocannon stdout에서 평균 Req/Sec 파싱."""
+    """autocannon stdout/stderr에서 평균 Req/Sec 파싱."""
+    content = _strip_ansi(content)
     match = re.search(r"Req/Sec[^\d]*(\d+\.?\d*k?)", content)
     if match:
         val_str = match.group(1)
@@ -709,9 +732,11 @@ def run_concurrent_experiment(wl_a, wl_b, a_cores, b_cores, rep,
     reset_cgroup(CGROUP_A)
     reset_cgroup(CGROUP_B)
 
-    # 12. throughput 파싱
-    throughput_a, unit_a = parse_throughput_from_log(stdout_a_path, wl_a)
-    throughput_b, unit_b = parse_throughput_from_log(stdout_b_path, wl_b)
+    # 12. throughput 파싱 (nodejs는 stderr fallback)
+    throughput_a, unit_a = parse_throughput_from_log(
+        stdout_a_path, wl_a, stderr_path=stderr_a_path)
+    throughput_b, unit_b = parse_throughput_from_log(
+        stdout_b_path, wl_b, stderr_path=stderr_b_path)
 
     if throughput_a is not None:
         log(f"  throughput_a ({wl_a}): {throughput_a:.2f} {unit_a}")
