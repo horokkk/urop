@@ -62,6 +62,7 @@ CGROUP_VM = os.path.join(CGROUP_BASE, "vm_a")
 CORE_CONDITIONS = {
     3:  {"cpuset": "0-2",       "omp": 3},
     5:  {"cpuset": "0-4",       "omp": 5},
+    6:  {"cpuset": "0-5",       "omp": 6},
     7:  {"cpuset": "0-6",       "omp": 7},
     10: {"cpuset": "0-9",       "omp": 10},
     14: {"cpuset": "0-9,10-13", "omp": 14},   # 10 physical + 4 HT
