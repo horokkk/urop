@@ -178,12 +178,14 @@ def log_sep():
 # ==========================================
 # 코어 분배
 # ==========================================
-def make_split(a_cores, b_cores):
+def make_split(a_cores, b_cores, fixed_memory_gb=None):
     """코어 수를 cpuset 문자열 + 메모리 제한으로 변환.
 
     Args:
         a_cores: vm_a에 할당할 코어 수
         b_cores: vm_b에 할당할 코어 수
+        fixed_memory_gb: 양쪽 VM에 동일하게 할당할 메모리 (GB).
+                         None이면 코어 비례 분할.
 
     Returns:
         (a_cpuset, b_cpuset, a_mem, b_mem)
@@ -194,11 +196,16 @@ def make_split(a_cores, b_cores):
     a_cpuset = f"0-{a_cores - 1}"
     b_cpuset = f"{a_cores}-{a_cores + b_cores - 1}"
 
-    # 메모리: 비례 분할, 최소 4G
-    a_mem_gb = max(4, int(TOTAL_MEM_GB * a_cores / TOTAL_THREADS))
-    b_mem_gb = max(4, int(TOTAL_MEM_GB * b_cores / TOTAL_THREADS))
-    a_mem = f"{a_mem_gb}G"
-    b_mem = f"{b_mem_gb}G"
+    if fixed_memory_gb is not None:
+        # 메모리 고정: 코어와 메모리 confound 제거
+        a_mem = f"{fixed_memory_gb}G"
+        b_mem = f"{fixed_memory_gb}G"
+    else:
+        # 메모리: 비례 분할, 최소 4G
+        a_mem_gb = max(4, int(TOTAL_MEM_GB * a_cores / TOTAL_THREADS))
+        b_mem_gb = max(4, int(TOTAL_MEM_GB * b_cores / TOTAL_THREADS))
+        a_mem = f"{a_mem_gb}G"
+        b_mem = f"{b_mem_gb}G"
 
     return a_cpuset, b_cpuset, a_mem, b_mem
 
@@ -602,13 +609,14 @@ def _parse_autocannon(content):
 # Concurrent 실험 실행
 # ==========================================
 def run_concurrent_experiment(wl_a, wl_b, a_cores, b_cores, rep,
-                              log_dir, dry_run=False):
+                              log_dir, dry_run=False, fixed_memory_gb=None):
     """1회 concurrent 실험: wl_a(vm_a) + wl_b(vm_b) 동시 실행.
 
     Returns:
         dict with experiment results, or None on failure.
     """
-    a_cpuset, b_cpuset, a_mem, b_mem = make_split(a_cores, b_cores)
+    a_cpuset, b_cpuset, a_mem, b_mem = make_split(a_cores, b_cores,
+                                                   fixed_memory_gb)
     exp_tag = f"{wl_a}+{wl_b}_{a_cores}v{b_cores}_r{rep}"
 
     log_sep()
@@ -794,6 +802,10 @@ def main():
     parser.add_argument(
         "--resume-from", type=int, default=None,
         help="중단 지점부터 재개 (exp_id 번호)")
+    parser.add_argument(
+        "--fixed-memory", type=int, default=None,
+        help="양쪽 VM에 동일하게 할당할 메모리 (GB). "
+             "미지정 시 코어 비례 분할. (예: --fixed-memory 14)")
     args = parser.parse_args()
 
     # 입력 검증
@@ -877,6 +889,10 @@ def main():
     log(f"워크로드 쌍: {[f'{a}:{b}' for a, b in pairs]}")
     log(f"코어 분배: {[f'{a}:{b}' for a, b in splits]}")
     log(f"반복: {args.reps}회")
+    if args.fixed_memory:
+        log(f"메모리: 고정 {args.fixed_memory}G (양쪽 동일)")
+    else:
+        log(f"메모리: 코어 비례 분할")
     log(f"프로토콜: {IDLE_WAIT}s idle + {WORKLOAD_DUR}s 워크로드 + "
         f"{COOLDOWN}s 쿨다운")
     log(f"총 실험: {total_exps}개 (전체 {len(experiments)}개 중)")
@@ -917,6 +933,7 @@ def main():
             rep=exp["rep"],
             log_dir=log_dir,
             dry_run=args.dry_run,
+            fixed_memory_gb=args.fixed_memory,
         )
 
         if result is not None:
