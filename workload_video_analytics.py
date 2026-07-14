@@ -9,7 +9,7 @@
 - video_analytics: OpenCV로 직접 프레임 디코딩 + 멀티워커 CPU 전처리 후 YOLO inference
   → CPU 코어 수에 따라 전처리 병렬성이 변화 → throughput 차이 발생
 
-CPU 작업: cv2.VideoCapture 디코딩 + resize + GaussianBlur + CLAHE + edge detection (멀티워커)
+CPU 작업: cv2.VideoCapture 디코딩 + resize + GaussianBlur + color normalization (멀티워커)
 GPU 작업: YOLO detection inference
 """
 
@@ -21,28 +21,16 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 def preprocess_frame(frame, target_size=640):
-    """CPU-heavy 전처리 파이프라인. OpenCV 연산은 GIL을 해제하므로 threading 가능."""
-    # 1. Resize (여러 단계 — CPU 부하 증가)
-    h, w = frame.shape[:2]
-    # 2배 upscale (INTER_CUBIC: CPU-heavy)
-    frame = cv2.resize(frame, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
-    # 최종 크기로 resize
-    frame = cv2.resize(frame, (target_size, target_size), interpolation=cv2.INTER_AREA)
+    """실제 YOLO 전처리 파이프라인. OpenCV 연산은 GIL을 해제하므로 threading 가능."""
+    # 1. Resize to model input size
+    frame = cv2.resize(frame, (target_size, target_size), interpolation=cv2.INTER_LINEAR)
 
-    # 2. GaussianBlur (denoising)
+    # 2. GaussianBlur (denoising — 실제 영상 분석에서 일반적)
     frame = cv2.GaussianBlur(frame, (5, 5), 1.0)
 
-    # 3. Color space conversion + CLAHE
-    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    lab[:, :, 0] = clahe.apply(lab[:, :, 0])
-    frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-
-    # 4. Edge detection overlay
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 50, 150)
-    edges_3ch = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-    frame = cv2.addWeighted(frame, 0.9, edges_3ch, 0.1, 0)
+    # 3. BGR → RGB 변환 + float32 정규화
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    frame = frame.astype(np.float32) / 255.0
 
     return frame
 
