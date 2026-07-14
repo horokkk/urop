@@ -61,17 +61,6 @@ def parse_power_csv(csv_path, start_elapsed=30, end_elapsed=150):
         print(f"  WARNING: 워크로드 구간 데이터 없음: {csv_path}")
         return None
 
-    # 평균 전력 계산
-    def avg_col(col_name):
-        vals = []
-        for row in rows:
-            try:
-                v = float(row.get(col_name, 0))
-                vals.append(v)
-            except (ValueError, TypeError):
-                pass
-        return sum(vals) / len(vals) if vals else 0.0
-
     # RAPL 컬럼 이름 탐색 (서버에 따라 다를 수 있음)
     sample_keys = rows[0].keys() if rows else []
 
@@ -93,6 +82,45 @@ def parse_power_csv(csv_path, start_elapsed=30, end_elapsed=150):
         if "rapl" in key.lower() and "dram" in key.lower():
             rapl_dram_col = key
             break
+
+    # RAPL 음수값 필터 (카운터 wraparound 감지)
+    rapl_cols = [c for c in [rapl_pkg_col, rapl_dram_col] if c is not None]
+    if rapl_cols:
+        original_count = len(rows)
+        filtered_rows = []
+        neg_count = 0
+        for row in rows:
+            has_negative = False
+            for col in rapl_cols:
+                try:
+                    v = float(row.get(col, 0))
+                    if v < 0:
+                        has_negative = True
+                        break
+                except (ValueError, TypeError):
+                    pass
+            if has_negative:
+                neg_count += 1
+            else:
+                filtered_rows.append(row)
+        if neg_count > 0:
+            print(f"  WARNING: RAPL 음수값 {neg_count}/{original_count}행 "
+                  f"감지 (카운터 wraparound) → 해당 행 제외: {csv_path}")
+        rows = filtered_rows
+        if not rows:
+            print(f"  WARNING: RAPL 필터 후 유효 데이터 없음: {csv_path}")
+            return None
+
+    # 평균 전력 계산
+    def avg_col(col_name):
+        vals = []
+        for row in rows:
+            try:
+                v = float(row.get(col_name, 0))
+                vals.append(v)
+            except (ValueError, TypeError):
+                pass
+        return sum(vals) / len(vals) if vals else 0.0
 
     # GPU 전력
     gpu0_col = None
