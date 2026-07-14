@@ -321,7 +321,8 @@ def cleanup_residual_processes():
     patterns = ["server.js", "workload_yolo", "workload_gemm",
                 "workload_resnet", "workload_llm", "autocannon",
                 "workload_training", "libx264", "workload_gpu_llm",
-                "ffmpeg", "workload_ffmpeg"]
+                "ffmpeg", "workload_ffmpeg",
+                "workload_video_analytics", "workload_llm_serving"]
     my_pid = os.getpid()
     parent_pid = os.getppid()
     killed = []
@@ -391,6 +392,22 @@ def start_workload(workload_name, num_cores, stdout_path, stderr_path):
 
     else:
         cmd = wl["cmd"]
+
+        # P1/P3: DataLoader workers를 코어 수에 맞춰 조정
+        if workload_name == "training_heavy":
+            workers = min(num_cores, 8)
+            cmd += f" --workers {workers}"
+            log(f"  --workers {workers}")
+        elif workload_name == "video_analytics":
+            workers = min(num_cores, 4)
+            cmd += f" --workers {workers}"
+            log(f"  --workers {workers}")
+
+        # P2: ffmpeg 인코딩 스레드를 코어 수에 맞춤
+        if wl.get("direct_ffmpeg"):
+            cmd = cmd.replace("-preset medium", f"-preset medium -threads {num_cores}")
+            log(f"  -threads {num_cores}")
+
         # GPU 워크로드: --device cuda:0
         if wl.get("gpu"):
             cmd += " --device cuda:0"
