@@ -460,6 +460,22 @@ def start_workload(workload_name, num_cores, cgroup_path, cuda_device,
 
     else:
         cmd = wl["cmd"]
+
+        # DataLoader workers를 코어 수에 맞춰 조정
+        if workload_name == "training_heavy":
+            workers = min(num_cores, 8)
+            cmd += f" --workers {workers}"
+            log(f"  [{vm_name}] --workers {workers}")
+        elif workload_name == "video_analytics":
+            workers = min(num_cores, 4)
+            cmd += f" --workers {workers}"
+            log(f"  [{vm_name}] --workers {workers}")
+
+        # ffmpeg 인코딩 스레드를 코어 수에 맞춤
+        if wl.get("direct_ffmpeg"):
+            cmd = cmd.replace("-preset medium", f"-preset medium -threads {num_cores}")
+            log(f"  [{vm_name}] -threads {num_cores}")
+
         # GPU 워크로드: --device cuda:N
         if wl.get("gpu"):
             cmd += f" --device cuda:{cuda_device}"
