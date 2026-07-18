@@ -499,7 +499,7 @@ def main():
     print("=" * 70)
 
     workload_names = sorted(set(r["workload"] for r in results))
-    core_values = sorted(set(r["cores"] for r in results))
+    core_values = sorted(set(r["cores"] for r in results), key=lambda x: int(x))
 
     print(f"{'워크로드':<12}", end="")
     for c in core_values:
